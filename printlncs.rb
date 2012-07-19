@@ -95,33 +95,44 @@ $page = if $opts[:a4] then $a4_page else $letter_page end
 
 $padding = Box.new [0,0,10,40]
 
+$debug = false
+
 def num_pages(psfile)
     return File.open(psfile).grep(/%%Pages/).first.split(":")[1].strip.to_i
 end
 
-def bounds(psfile,pages)
-    puts "Computing bounding box for page(s) #{pages.join(", ")}..."
-    dimens = pages.map { |page| 
+def page_type(psfile)
+    case File.open(psfile).grep(/%%DocumentMedia/).first.split(":")[1].split.first
+    when "612x792"
+        return "letter"
+    when "430x660"
+        return "lncs"
+    when "595x842"
+        return "a4"
+    else
+        return "?"
+    end
+end
+
+def bounding_box(psfile,page)
+    Box.new (
         `psselect -p#{page} #{psfile} 2> /dev/null | #{BBOX} - 2>&1`.
         lines.
-        select{|l| l.include? "BoundingBox"}.
-        first.split(":")[1].strip.split.map{|s| s.to_i}
-    }
-    puts "boxes: #{ dimens.map{ |ds| Box.new ds }.join(", ") }"
-    return dimens.map{ |ds| Box.new ds }
+        select{|l| l =~ /BoundingBox/}.
+        first.
+        split(":")[1].strip.split.map{|s| s.to_i}
+    )
 end
 
 def max(i,j)
     if i > j then i else j end
 end
+
 def min(i,j)
     if i < j then i else j end
 end
 
-def calculate(box)
-    
-    ## ToDo -- center the pages, in case of weird scaling
-    
+def calculate(box)    
     vscale = min( 1, ($page.width - $padding.width).to_f / box.height )
     hscale = min( 1, ($page.height - $padding.height).to_f / (box.width*2))    
     scale = if $opts[:noscale] then 1 else min(vscale,hscale) end
@@ -129,14 +140,14 @@ def calculate(box)
     hmargin = ($page.width - box.height*scale) / 2
     vmargin = ($page.height - 2 * box.width*scale) / 3
                 
-    xo1 = xo2 = hmargin - ($opts[:offset] - box.y2)
-    yo1 = vmargin - box.x1
+    xo1 = xo2 = hmargin + box.y2*scale - $opts[:offset]
+    yo1 = vmargin - box.x1*scale
     yo2 = yo1 + vmargin + box.width*scale
                 
-    puts "Scale = #{scale}"
-    puts "X-offsets = #{xo1}, #{xo2}"
-    puts "Y-offsets = #{yo1}, #{yo2}"
-        
+    puts "Scale = #{scale}" if $debug
+    puts "X-offsets = #{xo1}, #{xo2}" if $debug
+    puts "Y-offsets = #{yo1}, #{yo2}" if $debug
+
     return scale, xo1, xo2, yo1, yo2
 end
 
@@ -154,33 +165,38 @@ def convert(f)
         
         # convert the input PDF file to a PS file in the working directory
         src = File.basename(f,".pdf")
-        puts "Converting #{src}.pdf to #{src}.ps"
+        puts "Converting #{src}.pdf to #{src}.ps" if $debug
         `#{PDFTOPS} \"#{f}\" #{src}.ps`
         
     else
         puts "Warning: expected PDF/PS file; skipping #{File.basename(f)}."
         return
     end
+    
+    paper = page_type("#{src}.ps")
+    puts "Detected #{paper} paper" if $debug
         
     num_pages = min( num_pages("#{src}.ps"), 5 )
-    pages = (1..num_pages).map{ |x| x }
-
-    box = Box.avg( bounds("#{src}.ps",pages) )        
-    puts "box-avg: #{box}"
+    pages = (1..num_pages).to_a
+    bounds = pages.map{|p| bounding_box("#{src}.ps",p)}
+    box = Box.avg( bounds )        
+    puts "box-avg: #{box}" if $debug
     
     scale, xoff1, xoff2, yoff1, yoff2 = calculate(box)
 
     # scale, rotate, and shift the pages
     str = "2:0L@#{scale}(#{xoff1},#{yoff1})+1L@#{scale}(#{xoff2},#{yoff2})"
-    puts "Applying Postsrcipt transformations..."
+    puts "Applying Postsrcipt transformations..." if $debug
 
     # generate a 2-up PS file
-    `#{PSTOPS} -p#{$page.type} "#{str}" #{src}.ps #{src}.2up.ps`
+    # `#{PSTOPS} -p#{$page.type} "#{str}" #{src}.ps #{src}.2up.ps #{$debug? "" : "&> /dev/null"} `
+    `#{PSTOPS} -p#{$page.type} "#{str}" #{src}.ps #{src}.2up.ps #{$debug? "" : "&> /dev/null"} `
+    ## NOTE: pstops doesn't seem to allow us to set the page size.
 
     if File.extname(f) == ".pdf" then
         
         # convert back to PDF, if the input file was PDF
-        puts "Converting #{src}.2up.ps to #{src}.2up.pdf"
+        # puts "Converting #{src}.2up.ps to #{src}.2up.pdf"
         `#{PSTOPDF} #{src}.2up.ps #{src}.2up.pdf &> /dev/null`
         File.delete("#{src}.ps", "#{src}.2up.ps")
     end
