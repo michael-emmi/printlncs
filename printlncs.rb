@@ -4,7 +4,6 @@
 # Copyright 2013 Michael Emmi
 
 require 'optparse'
-require 'tempfile'
 
 $loud = false
 $quiet = false
@@ -16,10 +15,37 @@ $between = 0
 $box_range = (1..5)
 $padding = 10
 
-def ensure_cmd(cmd)
-  exe = cmd.split.first
-  abort "cannot find '#{exe}' in executable path." if `which #{exe}`.empty?
-  return cmd
+def define_command( cmd, extras = {} )
+  define_method( extras[:name] || cmd.split.first ) do 
+    exe = cmd.split.first
+    if `which #{exe}`.empty?
+      msg = "I cannot find #{exe} in your executable path."
+      msg << "\nNOTE: #{exe} is packaged with #{extras[:package]}." if extras[:package]
+      abort msg
+    end
+    return cmd
+  end
+end
+
+define_command 'pdftops', :package => 'poppler'
+define_command 'pstopdf' # packaged with what?
+define_command 'pstops', :package => '(La)TeX'
+define_command 'psselect', :package => '(La)TeX'
+define_command 'gs -sDEVICE=bbox -dNOPAUSE -dBATCH', :name => :get_box, :package => 'ghostscript'
+
+class Range
+  def self.from_s(str)
+    case str
+    when /(\d+,\s*)+\d+/
+      str.split(/,/).map{|i| i.to_i}
+    when /\(?\d+(\.\.|,)\d+\)?/
+      str.gsub(/[()]/,"").split(/\.\.|,/).inject{|i,j| i.to_i..j.to_i}
+    when /^\d$/
+      [str.to_i]
+    else
+      abort "I don't know how to treat the \"range\" #{str} you gave me."
+    end
+  end
 end
 
 class SymbolicFile < String
@@ -41,12 +67,12 @@ class SymbolicFile < String
 
     when my_ext == '.pdf' && ext == '.ps'
       puts "Generating #{target} from #{self}." unless $quiet
-      `#{ensure_cmd('pdftops')} \"#{self}\" \"#{target}\"`
+      `#{pdftops} \"#{self}\" \"#{target}\"`
       self.class.new(target,keep)
 
     when my_ext == '.ps' && ext == '.pdf' then
       puts "Generating #{target} from #{self}." unless $quiet
-      `#{ensure_cmd('pstopdf')} \"#{self}\" \"#{target}\"`
+      `#{pstopdf} \"#{self}\" \"#{target}\"`
       self.class.new(target,keep)
 
     else
@@ -58,7 +84,7 @@ class SymbolicFile < String
     abort "I need a postscript file!" unless (ext = File.extname(self))  == '.ps'
     target = File.basename(self,ext) + '.2up.ps'
     puts "Generating #{target} from #{self}." unless $quiet
-    `#{ensure_cmd('pstops')} -p#{$paper} "#{yield self}" #{self} #{target} #{$loud ? "" : "&> /dev/null"}`
+    `#{pstops} -p#{$paper} "#{yield self}" #{self} #{target} #{$loud ? "" : "&> /dev/null"}`
     self.class.new(target,keep)
   end
 end
@@ -98,8 +124,7 @@ def magic(psfile)
   # calculate the average bounding box over $box_range
   # coordinates are given by [x1,y1,x2,y2]
   bounding_box = $box_range.inject([0,0,0,0]) do |sums,page|
-    `#{ensure_cmd('psselect')} -p#{page} #{psfile} 2> /dev/null \
-    | #{ensure_cmd('gs -sDEVICE=bbox -dNOPAUSE -dBATCH')} - 2>&1`.
+    `#{psselect} -p#{page} #{psfile} 2> /dev/null | #{get_box} - 2>&1`.
     lines.select{|l| l =~ /BoundingBox/}.first.split(':')[1].strip.split.
     each_with_index.map{|n,i| n.to_i + sums[i]}
   end.map{|n| n / $box_range.size}
@@ -168,16 +193,7 @@ def cmdline(args)
     end
   
     opts.on("--box-range PAGES", "Calculate bounding boxes on PAGES.") do |r|
-      case r
-      when /(\d+,\s*)+\d+/
-        $box_range = r.split(/,/).map{|i| i.to_i}
-      when /\(?\d+(\.\.|,)\d+\)?/
-        $box_range = r.gsub(/[()]/,"").split(/\.\.|,/).inject{|i,j| i.to_i..j.to_i}
-      when /^\d$/
-        $box_range = [r.to_i]
-      else
-        abort "I don't know how to treat the \"range\" #{r} you gave me."
-      end
+      $box_range = Range.from_s(r)
     end
   end.parse!(args)
 
