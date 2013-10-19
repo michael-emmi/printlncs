@@ -1,256 +1,190 @@
 #!/usr/bin/env ruby
 
-require 'rubygems'
+# Author: Michael Emmi <michael.emmi@gmail.com>
+# Copyright 2013 Michael Emmi
+
 require 'optparse'
+require 'tempfile'
 
-def psselect
-  abort "cannot find 'psselect' in executable path." if `which psselect`.empty?
-  return "psselect"
+$loud = false
+$quiet = false
+
+$paper = :letter
+$scaling = true
+$bottom = 0
+$between = 0
+$box_range = (1..5)
+$padding = 10
+
+def ensure_cmd(cmd)
+  exe = cmd.split.first
+  abort "cannot find '#{exe}' in executable path." if `which #{exe}`.empty?
+  return cmd
 end
 
-def pdftops
-  abort "cannot find 'pdftops' in executable path." if `which pdftops`.empty?
-  return "pdftops"
-end
-
-def pstops
-  abort "cannot find 'pstops' in executable path." if `which pstops`.empty?
-  return "pstops"
-end
-
-def pstopdf
-  abort "cannot find 'pstopdf' in executable path." if `which pstopdf`.empty?
-  return "pstopdf"
-end
-
-def calcbbox
-  abort "cannot find 'gs' in executable path." if `which gs`.empty?
-  return "gs -sDEVICE=bbox -dNOPAUSE -dBATCH"
-end
-
-class Document
-  attr_accessor :paper
-  attr_accessor :scaling
-  attr_accessor :shift
-  attr_accessor :hsep
-  attr_accessor :first_page
-  
-  def initialize(src, loud=false, quiet=false)
-    @ext = File.extname(src)
-    @src = File.basename(src,@ext)
-    @loud = loud
-    @quiet = quiet
-    @calculated = false
-
-    @paper = :letter
-    @scaling = 1
-    @shift = 0
-    @hsep = 0
-    @first_page = 1
-
-    case @ext
-    when ".ps"
-      FileUtils.cp(src, psfile) if File.dirname(src) != Dir.pwd
-    when ".pdf"
-      puts "Converting #{src} to #{psfile}" unless @quiet
-      `#{pdftops} \"#{src}\" \"#{psfile}\"`
-    else
-      abort "expected .pdf or .ps file; got #{File.basename(src)}."
-    end
-
-    puts "Detected #{page_type}-sized paper." if @loud
-  end
-  
-  def ps_transform(scale,xo1,xo2,yo1,yo2)
-    "2:0L@#{scale}(#{xo1},#{yo1})+1L@#{scale}(#{xo2},#{yo2})"
-  end
-  
-  def psfile
-    "#{@src}.ps"
-  end
-  
-  def ps2up
-    "#{@src}.2up.ps"
-  end
-  
-  def num_pages
-    File.open(psfile).grep(/%%Pages/).first.split(":")[1].strip.to_i
-  end
-  
-  def page_type
-    case File.open(psfile).grep(/%%DocumentMedia/).first.split(":")[1].split.first
-    when "612x792"
-      "letter"
-    when "430x660"
-      "lncs"
-    when "595x842"
-      "a4"
-    else
-      return "?"
-    end
-  end
-
-  def recalculate
-    puts "Calculating scaling and offsets." unless @quiet
-    
-    case @paper
-    when :letter
-      page = Box.letter
-    when :a4
-      page = Box.a4
-    else
-      abort "unexpected paper format: #{@paper}"
-    end
-
-    # calculate the bounding box as the average across up to five pages
-    # from @first_page.
-    first = @first_page
-    last = @first_page + [[num_pages - first, 0].max, 5].min
-    bounding_box = Box.avg((first..last).to_a.map{ |n| Box.new(
-      `#{psselect} -p#{n} #{psfile} 2> /dev/null | #{calcbbox} - 2>&1`.
-      lines.
-      select{|l| l =~ /BoundingBox/}.
-      first.
-      split(":")[1].strip.split.map{|s| s.to_i}
-    )})
-
-    if @scaling then
-      @scale = [ 
-        (page.width - Box.padding.width).to_f / bounding_box.height,
-        (page.height - Box.padding.height).to_f / (bounding_box.width*2),
-        1 ].min
-    else
-      @scale = 1
-    end
-         
-    hmargin = (page.width - bounding_box.height*@scale) / 2
-    vmargin = (page.height - 2 * bounding_box.width*@scale) / 3
-                
-    @xo1 = @xo2 = hmargin + bounding_box.y2*@scale - @shift
-    @yo1 = vmargin - bounding_box.x1*@scale + @hsep
-    @yo2 = @yo1 + vmargin + bounding_box.width*@scale - 2*@hsep
-    
-    if @loud
-      puts "bounding box: #{bounding_box} -- average from page #{first} to #{last}"
-      puts "scaling: #{@scale}"
-      puts "x-offsets: #{@xo1}, #{@xo2}"
-      puts "y-offsets: #{@yo1}, #{@yo2}"
-    end
-    
-    calculated = true
-  end
-
-  # Create a two-page-in-one postscript file, by scaling, rotating, etc.
-  def create2up
-    recalculate unless @calculated
-
-    # NOTE: pstops doesn't seem to allow us to set the page size.
-    puts "Applying Postscript transformations..." unless @quiet
-    puts "WARNING: scaling by #{@scale}" unless @quiet if @scale != 1
-    `#{pstops} -p#{@paper} "#{ps_transform(@scale,@xo1,@xo2,@yo1,@yo2)}" #{psfile} #{ps2up} #{@loud ? "" : "&> /dev/null"} `
-
-    # Convert back to PDF, if PDF was input
-    if @ext == ".pdf" then
-      puts "Converting #{ps2up} back to #{@src}.2up.pdf" unless @quiet
-      `#{pstopdf} #{ps2up} #{@src}.2up.pdf #{@loud ? "" : "&> /dev/null"}`
-      File.delete(psfile, ps2up)
-    end
+class SymbolicFile < String
+  def initialize(name,keep=false)
+    super(name)
+    at_exit { File.delete(name) } unless keep
   end  
   
-  def self.cmdline(args)
-    loud = quiet = nil
-    options = []
-    OptionParser.new do |opts|
-      opts.banner = "Usage: #{File.basename $0} [options] FILE"
-      
-      opts.on("-q", "--quiet", "Run quietly.") do |q|
-        loud = !quiet = q
-      end
+  def self.from(name)
+    new(name,true)
+  end
 
-      opts.on("-v", "--verbose", "Run verbosely.") do |v|
-        quiet = !loud = v
-      end
+  def as(ext, keep=false)
+    my_ext = File.extname(self)
+    target = File.basename(self,my_ext) + ext
     
-      opts.on("--[no-]scale", "Do (not) allow scaling.") do |s|
-        options << lambda{|d| d.scaling = s}
-      end
-    
-      opts.on("--paper SIZE", [:letter, :a4], "Set paper SIZE.") do |p|
-        options << lambda{|d| d.paper = p}
-      end
-    
-      opts.on("--offset LENGTH", Integer, "Shift the page by LENGTH.") do |o|
-        options << lambda{|d| d.shift = o}
-      end
-    
-      opts.on("--hsep LENGTH", Integer, "Add LENGTH to horizontal space.") do |h|
-        options << lambda{|d| d.hsep = h}
-      end
-    
-      opts.on("--first-page PAGE", Integer, "Calculate bounding boxes from PAGE.") do |p|
-        options << lambda{|d| d.first_page = p}
-      end
-    end.parse!(args)
+    case 
+    when my_ext == ext then self
 
-    abort "Must specify a single input file." unless args.size == 1
-    abort "Input file #{args[0]} does not exist." unless File.exists?(args[0])
-    d = Document.new(args[0],loud,quiet)
-    options.each{|o| o.call(d)}
-    d.create2up
+    when my_ext == '.pdf' && ext == '.ps'
+      puts "Generating #{target} from #{self}." unless $quiet
+      `#{ensure_cmd('pdftops')} \"#{self}\" \"#{target}\"`
+      self.class.new(target,keep)
+
+    when my_ext == '.ps' && ext == '.pdf' then
+      puts "Generating #{target} from #{self}." unless $quiet
+      `#{ensure_cmd('pstopdf')} \"#{self}\" \"#{target}\"`
+      self.class.new(target,keep)
+
+    else
+      abort "I don't know how to convert #{my_ext} to #{ext}!"
+    end
+  end
+  
+  def transform(keep=false)
+    abort "I need a postscript file!" unless (ext = File.extname(self))  == '.ps'
+    target = File.basename(self,ext) + '.2up.ps'
+    puts "Generating #{target} from #{self}." unless $quiet
+    `#{ensure_cmd('pstops')} -p#{$paper} "#{yield self}" #{self} #{target} #{$loud ? "" : "&> /dev/null"}`
+    self.class.new(target,keep)
   end
 end
 
-class Box
-  attr_accessor :x1, :x2, :y1, :y2
-  
-  def initialize( dimens )
-    @x1 = dimens[0]
-    @x2 = dimens[2]
-    @y1 = dimens[1]
-    @y2 = dimens[3]
-    @txs = 0, 0
+def page
+  case $paper
+  when :letter  then [0,0,612,792]
+  when :a4      then [0,0,595,842]
+  else               abort "I don't know about #{$paper} format."
   end
-  
-  def self.letter
-    Box.new [0,0,612,792]
-  end
-  
-  def self.a4
-    Box.new [0,0,595,842]
-  end
-  
-  def self.padding
-    Box.new [0,0,10,40]
-  end
-  
-  def width
-    @x2 - @x1
-  end
-  
-  def height
-    @y2 - @y1
-  end
-  
-  def +( b )
-    return Box.new [ @x1+b.x1, @y1+b.y1, @x2+b.x2, @y2+b.y2 ]
-  end
-      
-  def map( fn )
-    return Box.new [ 
-      fn.call(@x1), fn.call(@y1), 
-      fn.call(@x2), fn.call(@y2) ]
-  end
-          
-  def self.avg( boxes )
-    return boxes.
-      reduce{ |sum,b| sum + b }.
-      map( lambda{ |x| (x.to_f / boxes.size).to_i } )
-  end
+end
 
+class Array
+  def is_point; size == 2 end  
+  def x; self[0] end
+  def y; self[1] end
+
+  def is_box; size == 4 end
+  def x1; self[0] end
+  def y1; self[1] end
+  def x2; self[2] end
+  def y2; self[3] end
+  def width; x2 - x1 end
+  def height; y2 - y1 end
+
+  alias a_to_s to_s
   def to_s
-    return "(#{@x1},#{@y1}),(#{@x2},#{@y2})"
+    return "(#{x},#{y})" if is_point
+    return "(#{x1},#{y1}):(#{x2},#{y2})" if is_box
+    a_to_s
   end
 end
 
+# Generate a postscript transformation string
+def magic(psfile)
+  
+  # calculate the average bounding box over $box_range
+  # coordinates are given by [x1,y1,x2,y2]
+  bounding_box = $box_range.inject([0,0,0,0]) do |sums,page|
+    `#{ensure_cmd('psselect')} -p#{page} #{psfile} 2> /dev/null \
+    | #{ensure_cmd('gs -sDEVICE=bbox -dNOPAUSE -dBATCH')} - 2>&1`.
+    lines.select{|l| l =~ /BoundingBox/}.first.split(':')[1].strip.split.
+    each_with_index.map{|n,i| n.to_i + sums[i]}
+  end.map{|n| n / $box_range.size}
+  
+  if $scaling then
+    scale = [ 1,
+      (page.width - 2 * $padding).to_f / bounding_box.height,
+      (page.height - 3 * $padding).to_f / (bounding_box.width*2) ].min
+  else scale = 1
+  end
+  
+  horizontal_margin = (page.width - bounding_box.height * scale) / 2
+  vertical_margin = (page.height - 2 * bounding_box.width * scale) / 3
+  
+  left_page_shift = [
+    horizontal_margin + bounding_box.y2 * scale - $bottom,
+    vertical_margin - bounding_box.x1 * scale - $between
+  ]
+  
+  right_page_shift = [
+    horizontal_margin + bounding_box.y2 * scale - $bottom,
+    left_page_shift.y + vertical_margin + bounding_box.width * scale + 2 * $between
+  ]
+  
+  if $loud then
+    puts "bounding box: #{bounding_box} -- average over pages #{$box_range}"
+    puts "scaling: #{scale}"
+    puts "left-page-shift: #{left_page_shift}"
+    puts "right-page-shift: #{right_page_shift}"
+  end
 
-Document.cmdline(ARGV) if __FILE__ == $0
+  puts "WARNING: scaling by #{scale}." unless scale == 1 || $quiet
+  "2:0L@#{scale}#{left_page_shift}+1L@#{scale}#{right_page_shift}"
+end
+
+def cmdline(args)
+  OptionParser.new do |opts|
+    opts.banner = "Usage: #{File.basename $0} [options] FILE"
+
+    opts.on("-q", "--quiet", "Run quietly.") do |q|
+      $loud = !$quiet = q
+    end
+
+    opts.on("-v", "--verbose", "Run verbosely.") do |v|
+      $quiet = !$loud = v
+    end
+  
+    opts.on("--[no-]scale", "Do (not) allow scaling.") do |s|
+      $scaling = s
+    end
+  
+    opts.on("--paper SIZE", [:letter, :a4], "Set paper SIZE.") do |p|
+      $paper = p
+    end
+    
+    opts.on("--padding SPACE", Integer, "Add SPACE to bounding boxes.") do |s|
+      $padding = s
+    end
+  
+    opts.on("--bottom SPACE", Integer, "Add SPACE to the bottom.") do |s|
+      $bottom = s
+    end
+  
+    opts.on("--between SPACE", Integer, "Add SPACE between pages.") do |s|
+      $between = s
+    end
+  
+    opts.on("--box-range PAGES", "Calculate bounding boxes on PAGES.") do |r|
+      case r
+      when /(\d+,\s*)+\d+/
+        $box_range = r.split(/,/).map{|i| i.to_i}
+      when /\(?\d+(\.\.|,)\d+\)?/
+        $box_range = r.gsub(/[()]/,"").split(/\.\.|,/).inject{|i,j| i.to_i..j.to_i}
+      when /^\d$/
+        $box_range = [r.to_i]
+      else
+        abort "I don't know how to treat the \"range\" #{r} you gave me."
+      end
+    end
+  end.parse!(args)
+
+  abort "Must specify a single input file." unless args.size == 1
+  abort "Input file #{args[0]} does not exist." unless File.exists?(args[0])
+  
+  SymbolicFile.from(args[0]).as('.ps').transform{|x| magic(x)}.as('.pdf',true)
+end
+
+cmdline(ARGV) if __FILE__ == $0
