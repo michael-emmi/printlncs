@@ -124,9 +124,13 @@ def magic(psfile)
   # calculate the average bounding box over $box_range
   # coordinates are given by [x1,y1,x2,y2]
   bounding_box = $box_range.inject([0,0,0,0]) do |sums,page|
-    `#{psselect} -p#{page} #{psfile} 2> /dev/null | #{get_box} - 2>&1`.
-    lines.select{|l| l =~ /BoundingBox/}.first.split(':')[1].strip.split.
-    each_with_index.map{|n,i| n.to_i + sums[i]}
+    page = `#{psselect} -p#{page} #{psfile} 2> /dev/null | #{get_box} - 2>&1`
+    box = page.lines.select{|l| l =~ /BoundingBox/}.first
+    if box then
+      box.split(':')[1].strip.split.each_with_index.map{|n,i| n.to_i + sums[i]}
+    else
+      sums
+    end
   end.map{|n| n / $box_range.size}
   
   if $scaling then
