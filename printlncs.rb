@@ -10,6 +10,7 @@ $quiet = false
 
 $paper = :letter
 $scaling = true
+$scale = nil
 $bottom = 0
 $between = 0
 $box_range = (1..5)
@@ -134,34 +135,35 @@ def magic(psfile)
   end.map{|n| n / $box_range.size}
   
   if $scaling then
-    scale = [ 1,
+    $scale = [ 1,
       (page.width - 2 * $padding).to_f / bounding_box.height,
       (page.height - 3 * $padding).to_f / (bounding_box.width*2) ].min
-  else scale = 1
-  end
+  else
+    $scale = 1.0
+  end unless $scale
   
-  horizontal_margin = (page.width - bounding_box.height * scale) / 2
-  vertical_margin = (page.height - 2 * bounding_box.width * scale) / 3
+  horizontal_margin = (page.width - bounding_box.height * $scale) / 2
+  vertical_margin = (page.height - 2 * bounding_box.width * $scale) / 3
   
   left_page_shift = [
-    horizontal_margin + bounding_box.y2 * scale - $bottom,
-    vertical_margin - bounding_box.x1 * scale - $between
+    horizontal_margin + bounding_box.y2 * $scale - $bottom,
+    vertical_margin - bounding_box.x1 * $scale - $between
   ]
   
   right_page_shift = [
-    horizontal_margin + bounding_box.y2 * scale - $bottom,
-    left_page_shift.y + vertical_margin + bounding_box.width * scale + 2 * $between
+    horizontal_margin + bounding_box.y2 * $scale - $bottom,
+    left_page_shift.y + vertical_margin + bounding_box.width * $scale + 2 * $between
   ]
   
   if $loud then
     puts "bounding box: #{bounding_box} -- average over pages #{$box_range}"
-    puts "scaling: #{scale}"
+    puts "scaling: #{$scale}"
     puts "left-page-shift: #{left_page_shift}"
     puts "right-page-shift: #{right_page_shift}"
   end
 
-  puts "WARNING: scaling by #{scale}." unless scale == 1 || $quiet
-  "2:0L@#{scale}#{left_page_shift}+1L@#{scale}#{right_page_shift}"
+  puts "WARNING: scaling by #{$scale}." unless $scale == 1 || $quiet
+  "2:0L@#{$scale}#{left_page_shift}+1L@#{$scale}#{right_page_shift}"
 end
 
 def cmdline(args)
@@ -176,10 +178,14 @@ def cmdline(args)
       $quiet = !$loud = v
     end
   
-    opts.on("--[no-]scale", "Do (not) allow scaling.") do |s|
-      $scaling = s
+    opts.on("--no-scale", "Do (not) allow scaling.") do
+      $scaling = false
     end
-  
+
+    opts.on("--scale FACTOR", "Scale by FACTOR.") do |f|
+      $scale = f.to_f
+    end
+
     opts.on("--paper SIZE", [:letter, :a4], "Set paper SIZE.") do |p|
       $paper = p
     end
