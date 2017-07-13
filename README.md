@@ -1,15 +1,38 @@
-printlncs
-=========
+## printlncs
 
-Save paper by printing every two pages of LNCS proceedings on a single page,
+Save paper by printing every two pages of [LNCS][] proceedings on a single page,
 without scaling, if possible.
 
-Usage
------
+# Requirements
 
-    printlncs.rb some_lncs_paper.pdf
+* [Node.js][]
+* [Poppler][] providing `pdftops` executable
+* [Ghostscript][]
+* [pstopdf][]
+* [TeX][] providing `pstops` and `psselect` executables
 
-Author
-------
+# Installation
 
-[Michael Emmi](mailto:michael.emmi@gmail.com)
+    $ npm i -g printlncs
+
+# Usage
+
+    $ printlncs
+
+# Development
+
+Emulate installation of local repository:
+
+    $ npm link
+
+Release a new version to npm:
+
+    $ npm version [major|minor|patch]
+    $ npm publish
+
+[Node.js]: https://nodejs.org
+[Poppler]: https://poppler.freedesktop.org
+[Ghostscript]: https://www.ghostscript.com
+[pstopdf]: https://developer.apple.com/legacy/library/documentation/Darwin/Reference/ManPages/man1/pstopdf.1.html
+[Tex]: https://www.tug.org
+[LNCS]: http://www.springer.com/gp/computer-science/lncs

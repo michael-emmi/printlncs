@@ -1,0 +1,34 @@
+{
+  "name": "printlncs",
+  "version": "1.0.0",
+  "description": "Print every two pages of LNCS proceedings on a single page.",
+  "main": "index.js",
+  "bin": {
+    "printlncs": "./bin/cli.js"
+  },
+  "preferGlobal": true,
+  "scripts": {
+    "test": "true"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/michael-emmi/printlncs.git"
+  },
+  "keywords": [
+    "lncs",
+    "2up",
+    "printing"
+  ],
+  "author": "Michael Emmi <michael.emmi@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/michael-emmi/printlncs/issues"
+  },
+  "homepage": "https://github.com/michael-emmi/printlncs#readme",
+  "dependencies": {
+    "debug": "^2.6.8",
+    "event-stream": "^3.3.4",
+    "meow": "^3.7.0",
+    "tmp": "0.0.31"
+  }
+}
