@@ -13,6 +13,7 @@ let cli = meow(`
     --paper SIZE          Set paper SIZE (letter, a4)
     --padding SPACE       Add SPACE points padding to bounding boxes
     --bottom SPACE        Add SPACE points to bottom margin
+    --left SPACE          Add SPACE points to left margin
     --between SPACE       Add SPACE points between pages
     --key-pages PAGES     Calculate bounding boxes on PAGES.
 
@@ -24,6 +25,7 @@ let cli = meow(`
     paper: 'letter',
     padding: 10,
     bottom: 0,
+    left: 0,
     between: 0,
     keyPages: '[1,2,3,4,5]'
   }
