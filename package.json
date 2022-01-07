@@ -9,7 +9,8 @@
   "type": "module",
   "preferGlobal": true,
   "scripts": {
-    "test": "mocha --timeout 5000"
+    "test": "true",
+    "integration-test": "mocha --timeout 5000"
   },
   "repository": {
     "type": "git",
