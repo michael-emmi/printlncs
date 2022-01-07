@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 "use strict";
 
-let meow = require('meow');
-let printlncs = require('../lib/index');
+import meow from 'meow';
+import printlncs from '../lib/index.js';
 
 let cli = meow(`
   Usage
@@ -20,14 +20,29 @@ let cli = meow(`
   Examples
     $ printlncs main.pdf
 `, {
-  default: {
-    scale: undefined,
-    paper: 'letter',
-    padding: 10,
-    bottom: 0,
-    left: 0,
-    between: 0,
-    keyPages: '[1,2,3,4,5]'
+  importMeta: import.meta,
+  flags: {
+    scale: {
+        default: undefined
+    },
+    paper: {
+        default: 'letter'
+    },
+    padding: {
+        default: 10
+    },
+    bottom: {
+        default: 0
+    },
+    left: {
+        default: 0
+    },
+    between: {
+        default: 0
+    },
+    keyPages: {
+        default: '[1,2,3,4,5]'
+    }
   }
 });
 

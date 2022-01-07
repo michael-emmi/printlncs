@@ -6,9 +6,10 @@
   "bin": {
     "printlncs": "./bin/cli.js"
   },
+  "type": "module",
   "preferGlobal": true,
   "scripts": {
-    "test": "true"
+    "test": "mocha --timeout 5000"
   },
   "repository": {
     "type": "git",
@@ -28,7 +29,10 @@
   "dependencies": {
     "debug": "^2.6.8",
     "event-stream": "^3.3.4",
-    "meow": "^3.7.0",
+    "meow": "^10.1.2",
     "tmp": "0.0.31"
+  },
+  "devDependencies": {
+    "mocha": "^9.1.3"
   }
 }
